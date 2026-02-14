@@ -1,4 +1,4 @@
-# 🍔 外卖餐饮管理系统
+># 🍔 外卖餐饮管理系统
 
 > 一个功能完整的外卖餐饮管理全栈项目，基于Vue.js + Flask + MySQL技术栈开发
 
@@ -121,17 +121,25 @@ npm run serve
 - **订单管理**：历史订单、订单状态
 - **个人中心**：个人信息、收货地址
 
+![image](https://github.com/user-attachments/assets/0e351ff7-3489-4efd-879e-9d4aac793b93)
+<img width="2511" height="1352" alt="image" src="https://github.com/user-attachments/assets/5c795f94-c153-4dd3-9f5c-65c963ef1d7f" />
+
 ### 商家端功能
 - **店铺管理**：基本信息、营业状态
 - **菜品管理**：添加菜品、价格调整
 - **订单处理**：接单、备餐、发货
 - **数据统计**：销售数据、用户评价
 
+<img width="2548" height="1388" alt="image" src="https://github.com/user-attachments/assets/a1a4c3aa-132e-4bf5-84c4-475b98dc5cc7" />
+
+
 ### 管理员功能
 - **用户管理**：用户信息、权限设置
 - **店铺审核**：新店铺审核、状态管理
 - **系统监控**：系统状态、性能监控
-- **数据报表**：业务数据统计分析
+<img width="2549" height="1375" alt="image" src="https://github.com/user-attachments/assets/09b3dc4e-03f2-4ea0-b46d-ec2171b8cdfc" />
+<img width="2551" height="1341" alt="image" src="https://github.com/user-attachments/assets/f58e279e-b02b-4114-9018-45cf9776f798" />
+
 
 ## 🏗️ 项目结构
 
