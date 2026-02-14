@@ -156,7 +156,6 @@ food-delivery-system/
 │       └── package.json      # 项目配置
 ├── 后端代码/                 # Flask后端项目
 │   ├── app.py               # 主应用文件
-│   ├── app_optimized.py     # 优化版本
 │   ├── auth.py              # 认证模块
 │   ├── config.py            # 配置文件
 │   ├── utils/               # 工具函数
@@ -164,8 +163,10 @@ food-delivery-system/
 ├── 数据库代码/              # 数据库相关
 │   └── dba.sql              # 数据库表结构
 └── 课程报告/               # 项目文档
-    ├── README.md           # 项目说明（本文件）
-    └── 外卖餐饮管理系统课程报告.md  # 详细技术报告
+|   |
+|   |___ 外卖餐饮管理系统课程报告.md  # 详细技术报告
+|
+├── README.md  # 项目说明（本文件）
 ```
 
 ## 🔧 配置说明
