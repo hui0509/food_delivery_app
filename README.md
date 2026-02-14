@@ -131,6 +131,7 @@ npm run serve
 - **数据统计**：销售数据、用户评价
 
 <img width="2548" height="1388" alt="image" src="https://github.com/user-attachments/assets/a1a4c3aa-132e-4bf5-84c4-475b98dc5cc7" />
+<img width="2552" height="1409" alt="image" src="https://github.com/user-attachments/assets/8ce70a46-22ab-4cb6-ad3b-1a9b62d75b09" />
 
 
 ### 管理员功能
