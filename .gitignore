@@ -1,0 +1,165 @@
+# ===========================================
+# 外卖餐饮管理系统 - Git忽略规则
+# ===========================================
+
+# ==================== IDE配置 ====================
+
+# PyCharm IDE配置
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# VS Code配置
+.vscode/
+*.code-workspace
+
+# 其他IDE配置
+.project
+.classpath
+.settings/
+
+# ==================== 操作系统文件 ====================
+
+# Windows系统文件
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS系统文件
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Linux系统文件
+*~
+
+# ==================== 后端代码相关 ====================
+
+# Python缓存文件
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Python虚拟环境
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# 包安装目录
+*.egg-info/
+*.egg
+
+# 单元测试/覆盖率报告
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Redis数据文件
+dump.rdb
+
+# 日志文件
+*.log
+logs/
+debug.log
+
+# ==================== 前端代码相关 ====================
+
+# Node.js依赖包
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 构建产物
+dist/
+build/
+
+# 缓存文件
+.cache/
+.parcel-cache/
+
+# 包管理器锁文件（注意：package-lock.json和yarn.lock通常应该提交）
+# package-lock.json  # 取消注释如果不需要锁定版本
+# yarn.lock          # 取消注释如果不需要锁定版本
+
+# ==================== 数据库相关 ====================
+
+# 数据库备份文件
+*.bak
+*.backup
+
+# 临时数据库文件
+*.db
+*.sqlite
+*.sqlite3
+
+# ==================== 项目特定文件 ====================
+
+# 个人配置文件（如果有）
+config.local.*
+.env.local
+.env.production.local
+.env.development.local
+
+# 上传的文件（如果有上传目录）
+uploads/
+static/uploads/
+
+# 临时文件
+temp/
+tmp/
+
+# ==================== 其他 ====================
+
+# 大文件
+*.zip
+*.tar.gz
+*.rar
+
+# 文档转换文件
+*.pdf
+*.docx
+*.pptx
+
+# 图片文件（如果需要排除某些图片）
+# *.jpg
+# *.png
+# *.gif
+
+# ==================== 例外规则（以!开头） ====================
+
+# 确保.gitignore文件本身被跟踪
+!.gitignore
+
+# 确保README文件被跟踪
+!README.md
+!README*.md
+
+# 确保LICENSE文件被跟踪
+!LICENSE
+!LICENSE*
+
+# 确保必要的配置文件被跟踪（如果有）
+# !config.example.py
+# !.env.example
+
+# ===========================================
+# 注意事项：
+# 1. 以/结尾表示目录
+# 2. 以*开头表示任意字符
+# 3. 以!开头表示例外规则
+# 4. 空行和以#开头的行被忽略
+# ===========================================
