@@ -5266,6 +5266,91 @@ def upload_image():
         return jsonify(status=500, msg="上传失败")
 
 
+# 管理端：处理订单异常（管理员用）
+@app.route("/api/manager/issues/<int:issue_id>/process", methods=["POST", "PUT", "OPTIONS"])
+@cross_origin()
+@admin_required
+def process_order_issue(issue_id):
+    """处理订单异常"""
+    try:
+        # 处理OPTIONS预检请求
+        if request.method == 'OPTIONS':
+            return jsonify(status=200)
+            
+        data = request.json
+        if not data:
+            return jsonify(status=400, msg="请求数据不能为空")
+            
+        # 获取处理信息（兼容前端格式）
+        action = data.get('action', '')
+        comment = data.get('comment', '')
+        
+        # 映射前端action到后端status
+        status_mapping = {
+            'processing': 'processing',
+            'resolved': 'resolved', 
+            'closed': 'closed'
+        }
+        
+        status = status_mapping.get(action, 'processing')
+        process_result = comment or f"状态更新为：{status}"
+        solution = comment  # 使用comment作为solution
+        
+        if not action:
+            return jsonify(status=400, msg="处理操作不能为空")
+            
+        # 验证问题是否存在
+        issue_check = db.session.execute(
+            text('SELECT issue_id, status FROM order_issue WHERE issue_id = :issue_id'),
+            {'issue_id': issue_id}
+        ).fetchone()
+            
+        if not issue_check:
+            return jsonify(status=404, msg="订单异常不存在")
+            
+        # 更新问题状态（只更新status字段，因为表结构中没有其他处理字段）
+        update_sql = """
+            UPDATE order_issue 
+            SET status = :status,
+                updated_time = NOW()
+            WHERE issue_id = :issue_id
+        """
+        
+        admin_phone = request.current_admin_phone
+        
+        db.session.execute(text(update_sql), {
+            'status': status,
+            'issue_id': issue_id
+        })
+        
+        # 添加处理记录
+        followup_sql = """
+            INSERT INTO issue_followup 
+            (issue_id, followup_type, content, created_by)
+            VALUES 
+            (:issue_id, 'admin_process', :content, :admin_phone)
+        """
+        
+        followup_content = f"管理员处理：{process_result}"
+        if solution:
+            followup_content += f"，解决方案：{solution}"
+            
+        db.session.execute(text(followup_sql), {
+            'issue_id': issue_id,
+            'content': followup_content,
+            'admin_phone': admin_phone
+        })
+        
+        db.session.commit()
+        
+        return jsonify(status=200, msg="处理成功")
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"处理订单异常错误: {e}")
+        return jsonify(status=500, msg="系统错误")
+
+
 # 管理端：获取所有订单异常（管理员用）
 @app.route("/api/manager/issues", methods=["GET"])
 @cross_origin()
