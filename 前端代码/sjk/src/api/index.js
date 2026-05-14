@@ -81,3 +81,8 @@ aaxios.interceptors.response.use(
 );
 
 export default aaxios;
+
+// AI 聊天接口
+export function askChat(question) {
+  return aaxios.post('/api/chat', { question });
+}

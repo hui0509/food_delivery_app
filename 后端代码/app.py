@@ -9,6 +9,7 @@ import urllib.parse
 import os
 import uuid
 import re
+import logging
 from werkzeug.utils import secure_filename
 from pypinyin import pinyin, Style
 import bcrypt
@@ -95,6 +96,7 @@ from io import BytesIO
 class PasswordUtil:
     @staticmethod
     def hash_password(password: str) -> str:
+
         """生成密码哈希"""
         salt = bcrypt.gensalt()
         hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
@@ -150,7 +152,7 @@ from flask import current_app
 
 
 # 在app.py中配置
-app.config['DEEPSEEK_API_KEY'] = 'sk-4a4d0abca4af4ae08f297e2ed037bc0b'
+app.config['DEEPSEEK_API_KEY'] = 'your_deepseek_api_key_here'  # 请替换为你的 DeepSeek API Key
 
 
 # 允许的图片扩展名
@@ -5910,6 +5912,363 @@ def get_address_count():
     except Exception as e:
         print(f"获取地址数量错误: {e}")
         return jsonify(status=500, msg="系统错误")
+
+
+# ==================== AI 聊天接口 ====================
+
+def get_db_schema():
+    """从 information_schema 获取数据库表结构"""
+    try:
+        schema_query = text("""
+            SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, COLUMN_KEY, COLUMN_COMMENT
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = 'dba'
+            ORDER BY TABLE_NAME, ORDINAL_POSITION
+        """)
+        rows = db.session.execute(schema_query).fetchall()
+
+        tables = {}
+        for row in rows:
+            table_name = row[0]
+            if table_name not in tables:
+                tables[table_name] = []
+            col_info = f"{row[1]} {row[2]}"
+            if row[3] == 'PRI':
+                col_info += " PK"
+            if row[4]:
+                col_info += f" -- {row[4]}"
+            tables[table_name].append(col_info)
+
+        schema_str = "Tables in dba:\n"
+        for table, columns in tables.items():
+            schema_str += f"- {table} ({', '.join(columns)})\n"
+
+        return schema_str
+    except Exception as e:
+        print(f"获取数据库结构失败: {e}")
+        return ""
+
+
+def call_deepseek(system_prompt, user_prompt):
+    """调用 DeepSeek API"""
+    api_key = app.config.get('DEEPSEEK_API_KEY', '')
+    if not api_key:
+        return None
+
+    headers = {
+        'Authorization': f'Bearer {api_key}',
+        'Content-Type': 'application/json'
+    }
+
+    payload = {
+        'model': 'deepseek-chat',
+        'messages': [
+            {'role': 'system', 'content': system_prompt},
+            {'role': 'user', 'content': user_prompt}
+        ],
+        'temperature': 0.1,
+        'max_tokens': 1000
+    }
+
+    try:
+        resp = requests.post(
+            'https://api.deepseek.com/v1/chat/completions',
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data['choices'][0]['message']['content'].strip()
+    except Exception as e:
+        print(f"DeepSeek API 调用失败: {e}")
+        return None
+
+
+def validate_sql(sql):
+    """验证 SQL 安全性，只允许 SELECT 查询"""
+    sql = sql.strip().rstrip(';')
+
+    # 移除 markdown 代码块标记
+    if sql.startswith('```'):
+        lines = sql.split('\n')
+        sql = '\n'.join(lines[1:-1] if lines[-1].strip() == '```' else lines[1:])
+        sql = sql.strip()
+
+    sql_upper = sql.upper()
+
+    # 只允许 SELECT 和 WITH (CTE)
+    if not sql_upper.startswith('SELECT') and not sql_upper.startswith('WITH'):
+        raise ValueError("只允许 SELECT 查询")
+
+    # 危险关键词
+    dangerous = ['DROP', 'DELETE', 'INSERT', 'UPDATE', 'ALTER', 'TRUNCATE', 'GRANT', 'REVOKE', 'CREATE']
+    for keyword in dangerous:
+        if re.search(r'\b' + keyword + r'\b', sql_upper):
+            raise ValueError(f"禁止使用 {keyword} 语句")
+
+    # 确保有 LIMIT
+    if 'LIMIT' not in sql_upper:
+        sql += ' LIMIT 100'
+
+    return sql
+
+
+def format_rows(rows, columns):
+    """将查询结果格式化为字符串"""
+    if not rows:
+        return "查询结果为空"
+
+    result_lines = []
+    for row in rows[:20]:  # 最多显示20行
+        items = []
+        for col, val in zip(columns, row):
+            items.append(f"{col}: {val}")
+        result_lines.append(", ".join(items))
+
+    if len(rows) > 20:
+        result_lines.append(f"... 共 {len(rows)} 条结果，已显示前20条")
+
+    return "\n".join(result_lines)
+
+
+# ========== AI 聊天审计日志 ==========
+chat_log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
+os.makedirs(chat_log_dir, exist_ok=True)
+
+chat_logger = logging.getLogger('chat_audit')
+chat_logger.setLevel(logging.INFO)
+chat_logger.propagate = False
+
+if not chat_logger.handlers:
+    _fh = logging.FileHandler(
+        os.path.join(chat_log_dir, 'ai_chat.log'),
+        encoding='utf-8'
+    )
+    _fh.setFormatter(logging.Formatter('[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
+    chat_logger.addHandler(_fh)
+
+
+def _is_aggregate_query(sql):
+    """检测是否是聚合查询（COUNT/AVG/SUM/MAX/MIN/GROUP BY）"""
+    sql_upper = sql.upper()
+    return bool(re.search(r'\b(COUNT|AVG|SUM|MAX|MIN)\s*\(', sql_upper) or 'GROUP BY' in sql_upper)
+
+
+def enforce_user_isolation(sql, user_phone):
+    """行级隔离：涉及用户私有表的查询必须包含当前用户的过滤条件，否则直接拒绝
+
+    用户私有表 → 用户标识列：
+      oorder → cons_phone
+      cart → user_phone
+      user_address → user_phone
+      user_msg → user_phone
+      order_issue → user_phone
+      user → telephone
+
+    聚合查询（COUNT/AVG/SUM/GROUP BY）豁免，因为不暴露个人数据。
+    """
+    if not user_phone:
+        return sql
+    if _is_aggregate_query(sql):
+        return sql
+
+    user_tables = {
+        'oorder': 'cons_phone',
+        'cart': 'user_phone',
+        'user_address': 'user_phone',
+        'user_msg': 'user_phone',
+        'order_issue': 'user_phone',
+        'user': 'telephone',
+    }
+
+    sql_upper = sql.upper().replace('`', '')
+
+    for table, col in user_tables.items():
+        table_upper = table.upper()
+
+        # 检查 SQL 中是否引用了该表
+        pattern = r'\b' + re.escape(table_upper) + r'\b'
+        if not re.search(pattern, sql_upper):
+            continue
+
+        # 检查 WHERE 子句中是否已有该用户的过滤条件
+        # 匹配: WHERE col = 'phone' 或 AND col = 'phone'（允许别名前缀如 u.telephone）
+        filter_pattern = r'(WHERE\s+|AND\s+)[\w.]*' + re.escape(col.upper()) + r"\s*=\s*['\"]?" + re.escape(user_phone) + r"['\"]?"
+        if re.search(filter_pattern, sql_upper):
+            continue
+
+        # 涉及用户私有表但没有当前用户过滤 → 拒绝
+        raise ValueError(f"安全限制：查询涉及用户私有数据（{table}表），不允许查询其他用户的信息")
+
+    return sql
+
+
+def filter_other_users_data(rows, columns, user_phone):
+    """执行后兜底过滤：从结果中移除不属于当前用户的数据行"""
+    if not rows or not columns or not user_phone:
+        return rows
+
+    col_lower = [c.lower() for c in columns]
+
+    # 找到用户标识列的索引
+    user_col_idx = None
+    for i, col in enumerate(col_lower):
+        if col == 'cons_phone' or col == 'user_phone' or col == 'telephone':
+            user_col_idx = i
+            break
+
+    if user_col_idx is None:
+        # 结果中没有用户标识列，无法过滤
+        return rows
+
+    # 从后往前删除，避免索引偏移
+    filtered = [row for row in rows if str(row[user_col_idx]) == user_phone]
+    removed = len(rows) - len(filtered)
+    if removed > 0:
+        chat_logger.info(f"行级隔离（兜底）：已过滤 {removed} 条其他用户的数据")
+
+    return filtered
+
+
+def mask_sensitive_data(rows, columns, current_user_phone=None):
+    """对查询结果中的敏感字段进行脱敏（当前用户自己的手机号不脱敏）"""
+    if not rows or not columns:
+        return rows
+
+    col_lower = [c.lower() for c in columns]
+    masked = []
+
+    for row in rows:
+        row = list(row)
+        for i, col in enumerate(col_lower):
+            val = row[i]
+            if val is None:
+                continue
+            val_str = str(val)
+            # 手机号脱敏：保留前3后4（当前用户自己的不脱敏）
+            if 'phone' in col or 'telephone' in col:
+                if len(val_str) >= 7:
+                    if current_user_phone and val_str == current_user_phone:
+                        continue  # 自己的手机号不脱敏
+                    row[i] = val_str[:3] + '****' + val_str[-4:]
+            # 地址脱敏：保留前6字符
+            elif ('address' in col or 'addre' in col) and len(val_str) > 6:
+                row[i] = val_str[:6] + '...'
+            # 密码脱敏
+            elif 'password' in col:
+                row[i] = '******'
+        masked.append(row)
+
+    return masked
+
+
+@app.route("/api/chat", methods=["POST"])
+@cross_origin()
+def ai_chat():
+    """AI 聊天接口：自然语言 → SQL → 回答"""
+    user_phone = None
+    question = ''
+    try:
+        # 验证用户登录
+        user_phone = get_token_phone(request.headers.get('token'))
+
+        data = request.get_json()
+        question = data.get('question', '').strip()
+
+        if not question:
+            return jsonify(error="请输入问题"), 400
+
+        chat_logger.info(f"用户 {user_phone} | 问题: {question} | 阶段: 请求进入")
+
+        # 1. 获取数据库结构
+        schema = get_db_schema()
+        if not schema:
+            chat_logger.info(f"用户 {user_phone} | 问题: {question} | 状态: 失败-获取数据库结构失败")
+            return jsonify(error="获取数据库结构失败"), 500
+
+        # 2. 构建 SQL 生成提示词
+        sql_system_prompt = f"""你是一个MySQL数据库专家。数据库名为 dba，包含以下表：
+
+{schema}
+
+规则：
+1. 只生成 SELECT 查询，禁止 INSERT/UPDATE/DELETE/DROP/ALTER
+2. 使用正确的表名和列名，注意外键关系
+3. 对于中文问题，用 LIKE '%关键词%' 搜索文本字段
+4. 结果限制最多100行（如果用户没有指定数量）
+5. 使用中文别名让结果更易读，例如 AVG(rating) AS 平均评分
+6. 只返回SQL语句，不要解释
+7. 注意：user 是表名，但也是MySQL保留字，需要用反引号包裹 `user`
+8. 当前登录用户的手机号是 {user_phone}。涉及用户私有数据的查询（oorder、cart、user_address、user_msg、order_issue、user 表）必须在 WHERE 子句中使用当前用户的手机号进行过滤：cons_phone='{user_phone}' 或 user_phone='{user_phone}' 或 telephone='{user_phone}'
+9. 当用户问全局统计问题（如"评分最高的店铺"、"最热门的菜品"）时，不需要添加用户过滤
+10. 当用户查询其他用户的信息（如"某某的订单"、"查询某某的手机号"）时，你只能查询当前用户自己的数据，必须使用手机号 {user_phone} 进行过滤，不得使用其他用户的手机号
+
+示例：
+问题：评分最高的店铺是哪家？
+SQL：SELECT s.shop_name, AVG(r.rating) AS 平均评分, COUNT(*) AS 评价数 FROM shop s JOIN review r ON s.shop_id = r.shop_id WHERE r.review_type = 'shop' GROUP BY s.shop_id ORDER BY 平均评分 DESC LIMIT 1"""
+
+        # 3. 调用 DeepSeek 生成 SQL
+        raw_sql = call_deepseek(sql_system_prompt, f"问题：{question}")
+        if not raw_sql:
+            chat_logger.info(f"用户 {user_phone} | 问题: {question} | 状态: 失败-DeepSeek API不可用")
+            return jsonify(error="AI服务暂时不可用，请稍后再试"), 500
+
+        # 4. 验证 SQL
+        try:
+            safe_sql = validate_sql(raw_sql)
+        except ValueError as e:
+            chat_logger.info(f"用户 {user_phone} | 问题: {question} | SQL: 被拦截 | 状态: SQL被拒绝-{str(e)}")
+            return jsonify(error=f"生成的SQL不安全: {str(e)}", sql=raw_sql), 400
+
+        # 4.5 行级隔离：涉及用户私有表时检查是否有当前用户过滤
+        try:
+            safe_sql = enforce_user_isolation(safe_sql, user_phone)
+        except ValueError as e:
+            chat_logger.info(f"用户 {user_phone} | 问题: {question} | SQL: {safe_sql} | 状态: 被拒绝-{str(e)}")
+            return jsonify(error=str(e), sql=safe_sql), 403
+
+        chat_logger.info(f"用户 {user_phone} | 问题: {question} | SQL: {safe_sql} | 阶段: SQL已生成")
+
+        # 5. 执行 SQL
+        try:
+            result = db.session.execute(text(safe_sql))
+            columns = list(result.keys()) if result.returns_rows else []
+            rows = result.fetchall() if result.returns_rows else []
+            # 兜底过滤：移除不属于当前用户的数据行
+            rows = filter_other_users_data(rows, columns, user_phone)
+            row_count = len(rows)
+            # 脱敏处理（当前用户自己的手机号不脱敏）
+            masked_rows = mask_sensitive_data(rows, columns, current_user_phone=user_phone)
+            rows_data = [dict(zip(columns, row)) for row in masked_rows]
+        except Exception as e:
+            chat_logger.info(f"用户 {user_phone} | 问题: {question} | SQL: {safe_sql} | 状态: SQL执行失败-{str(e)}")
+            return jsonify(error=f"SQL执行失败: {str(e)}", sql=safe_sql), 500
+
+        # 6. 格式化回答（使用脱敏后的数据）
+        rows_text = format_rows(masked_rows, columns)
+        answer_system_prompt = f"""你是一个友好的外卖助手。根据用户的问题和SQL查询结果，用简洁的中文回答。
+重要：系统出于安全原因，所有涉及用户私有数据的查询都只能查当前用户（手机号{user_phone}）自己的数据。
+如果用户的问题涉及查询其他用户的信息（如其他用户的订单、手机号、地址等），请告知用户你只能查询他自己的数据，并展示他的数据结果。不要把当前用户的数据错误地说成是其他用户的。"""
+        answer_user_prompt = f"""用户问题：{question}
+执行的SQL：{safe_sql}
+查询结果：
+{rows_text}
+
+请用1-2句话总结结果。如果有多个结果，用列表形式展示。"""
+
+        answer = call_deepseek(answer_system_prompt, answer_user_prompt)
+        if not answer:
+            answer = f"查询完成，找到 {row_count} 条结果。"
+
+        chat_logger.info(f"用户 {user_phone} | 问题: {question} | SQL: {safe_sql} | 行数: {row_count} | 状态: 成功 | 回答: {answer[:50]}")
+
+        return jsonify(answer=answer, sql=safe_sql, rows=rows_data)
+
+    except Exception as e:
+        chat_logger.info(f"用户 {user_phone or '未知'} | 问题: {question or '未知'} | 状态: 系统错误-{str(e)}")
+        print(f"AI聊天错误: {e}")
+        return jsonify(error="系统错误，请稍后再试"), 500
 
 
 if __name__ == '__main__':

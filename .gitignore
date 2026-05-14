@@ -7,6 +7,9 @@
 # PyCharm IDE配置
 .idea/
 *.iml
+
+# Claude Code 配置
+.claude/
 *.iws
 *.ipr
 

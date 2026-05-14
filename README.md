@@ -1,4 +1,4 @@
-# 🍔 外卖餐饮管理系统
+># 🍔 外卖餐饮管理系统
 
 > 一个功能完整的外卖餐饮管理全栈项目，基于Vue.js + Flask + MySQL技术栈开发
 
@@ -15,7 +15,7 @@
 
 | 用户类型 | 主要功能 |
 |---------|---------|
-| 👤 普通用户 | 浏览店铺、下单购买、评价、个人中心 |
+| 👤 普通用户 | 浏览店铺、下单购买、评价、个人中心、**AI 智能问答** |
 | 🏪 商家用户 | 店铺管理、菜品管理、订单处理、数据统计 |
 | 👨‍💼 管理员 | 用户管理、店铺审核、系统监控、数据报表 |
 
@@ -75,6 +75,9 @@ REDIS_PORT=6379
 
 # JWT密钥
 JWT_SECRET=your_jwt_secret_key
+
+# DeepSeek API Key（AI智能问答功能需要）
+DEEPSEEK_API_KEY=your_deepseek_api_key_here
 ```
 
 #### 启动后端服务
@@ -120,6 +123,10 @@ npm run serve
 - **下单支付**：地址选择、订单确认
 - **订单管理**：历史订单、订单状态
 - **个人中心**：个人信息、收货地址
+- **AI 智能问答**：自然语言查询数据库，支持店铺、菜品、订单等信息查询
+
+![image](https://github.com/user-attachments/assets/0e351ff7-3489-4efd-879e-9d4aac793b93)
+<img width="2511" height="1352" alt="image" src="https://github.com/user-attachments/assets/5c795f94-c153-4dd3-9f5c-65c963ef1d7f" />
 
 ### 商家端功能
 - **店铺管理**：基本信息、营业状态
@@ -127,11 +134,17 @@ npm run serve
 - **订单处理**：接单、备餐、发货
 - **数据统计**：销售数据、用户评价
 
+<img width="2548" height="1388" alt="image" src="https://github.com/user-attachments/assets/a1a4c3aa-132e-4bf5-84c4-475b98dc5cc7" />
+<img width="2552" height="1409" alt="image" src="https://github.com/user-attachments/assets/8ce70a46-22ab-4cb6-ad3b-1a9b62d75b09" />
+
+
 ### 管理员功能
 - **用户管理**：用户信息、权限设置
 - **店铺审核**：新店铺审核、状态管理
 - **系统监控**：系统状态、性能监控
-- **数据报表**：业务数据统计分析
+<img width="2549" height="1375" alt="image" src="https://github.com/user-attachments/assets/09b3dc4e-03f2-4ea0-b46d-ec2171b8cdfc" />
+<img width="2551" height="1341" alt="image" src="https://github.com/user-attachments/assets/f58e279e-b02b-4114-9018-45cf9776f798" />
+
 
 ## 🏗️ 项目结构
 
@@ -144,6 +157,8 @@ food-delivery-system/
 │       │   ├── api/          # API接口
 │       │   ├── components/   # 公共组件
 │       │   ├── views/        # 页面组件
+│       │   │   └── user/
+│       │   │       └── ChatBot.vue  # AI聊天组件
 │       │   ├── router/      # 路由配置
 │       │   └── App.vue       # 根组件
 │       └── package.json      # 项目配置
@@ -159,6 +174,60 @@ food-delivery-system/
 └── 课程报告/               # 项目文档
     ├── README.md           # 项目说明（本文件）
     └── 外卖餐饮管理系统课程报告.md  # 详细技术报告
+```
+
+## 🤖 AI 智能问答功能
+
+基于 Text-to-SQL 技术，用户可以通过自然语言查询数据库中的店铺、菜品、订单等信息。
+
+### 技术架构
+
+```
+用户提问 → DeepSeek 生成 SQL → 安全校验 → 执行查询 → DeepSeek 格式化回答 → 返回结果
+```
+
+### 核心特性
+
+- **自然语言转 SQL**：用户用中文提问，系统自动生成并执行 SQL 查询
+- **SQL 可视化**：每条回答附带可展开的 SQL 语句，方便学习和调试
+- **行级安全隔离**：用户只能查询自己的订单、地址等私有数据，无法访问其他用户信息
+- **审计日志**：记录每次 AI 聊天的完整链路（用户、问题、SQL、结果），日志位于 `后端代码/logs/ai_chat.log`
+- **敏感数据脱敏**：查询结果中的手机号、地址、密码等字段自动脱敏
+
+### 安全机制
+
+| 层级 | 机制 | 说明 |
+|------|------|------|
+| Prompt 引导 | SQL 生成 prompt 注入用户身份 | 引导 LLM 使用当前用户手机号过滤 |
+| SQL 级拦截 | `enforce_user_isolation()` | 涉及用户私有表但无当前用户过滤 → 直接拒绝（HTTP 403） |
+| 结果级兜底 | `filter_other_users_data()` | 执行后移除不属于当前用户的数据行 |
+| 字段脱敏 | `mask_sensitive_data()` | 手机号 `138****8000`、地址保留前6字符、密码 `******` |
+
+### 用户私有表隔离范围
+
+| 表名 | 用户标识列 | 说明 |
+|------|-----------|------|
+| `oorder` | `cons_phone` | 订单 |
+| `cart` | `user_phone` | 购物车 |
+| `user_address` | `user_phone` | 收货地址 |
+| `user_msg` | `user_phone` | 用户消息 |
+| `order_issue` | `user_phone` | 订单问题 |
+| `user` | `telephone` | 用户信息 |
+
+### 相关文件
+
+| 文件 | 说明 |
+|------|------|
+| `后端代码/app.py` | `/api/chat` 接口、隔离函数、脱敏函数、审计日志 |
+| `前端代码/sjk/src/views/user/ChatBot.vue` | 聊天组件（浮动按钮 + 聊天面板） |
+| `前端代码/sjk/src/api/index.js` | `askChat()` API 调用 |
+| `前端代码/sjk/src/views/user/Profile.vue` | 集成 ChatBot 组件 |
+
+### 配置
+
+在 `后端代码/app.py` 中配置 DeepSeek API Key：
+```python
+app.config['DEEPSEEK_API_KEY'] = 'your_deepseek_api_key_here'
 ```
 
 ## 🔧 配置说明

@@ -186,6 +186,7 @@
                 </div>
             </div>
         </div>
+        <ChatBot />
     </div>
 </template>
 
@@ -201,6 +202,7 @@ import RecommendComponent from '@/views/public/Recommend.vue'
 import OrderIssues from '@/views/user/orders/OrderIssues.vue'
 
 import AddressManagement from '@/views/user/profile/AddressManagement.vue'
+import ChatBot from '@/views/user/ChatBot.vue'
 
 export default {
     name: 'UserProfile',
@@ -214,7 +216,8 @@ export default {
         cart,
         RecommendComponent,
         OrderIssues,
-        AddressManagement // 注册地址管理组件
+        AddressManagement,
+        ChatBot
     },
     data() {
         return {
